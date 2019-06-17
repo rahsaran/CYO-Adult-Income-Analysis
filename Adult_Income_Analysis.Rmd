@@ -1,0 +1,1444 @@
+---
+title: "Adult Income Analysis"
+author: "Rahul Saran"
+date: "14/06/2019"
+output: pdf_document
+---
+
+# Introduction
+
+### About the dataset
+The dataset used for this project is titled 'Adult Census Income'. Information about the dataset is publicly available at the below link.
+https://www.kaggle.com/uciml/adult-census-income.
+This data was extracted from the 1994 Census bureau database in the US.
+It contains various demographic, relationship, educational, and occupational information about ~32000 individuals in the US, along with their income level - <=$50K or >$50K a year.
+The prediction task is to use the remaining data to determine whether a given person makes over $50K a year.
+(The actual dataset used is a different version of the dataset provided in the above link - hence, do not use the dataset in the link, as it may give slightly different result values).
+
+### Goal of the Project
+The goal of the project is to identify the impact of various factors on income, and to build the best model that determines a person's income level. Various machine learning models including logistic regression, k-nearest neighbours, and random forests are built. Various factors, including overall accuracy, sensitivity, specificity, and F1 score are used to determine the best model.
+
+### Key steps that were performed
+1) Data exploration and visualization to understand the variables and data provided. 
+2) Data cleaning to account for missing observations.
+3) Exploratory analysis to understand the impact of various factors on income.
+4) Modelling - machine learning algorithms are applied and the best model & its performance determined.
+5) Results from both exploratory analysis & modelling are noted & conclusions identified.
+
+# Analysis
+
+This section has 3 major parts as follows
+
+1) Setting up - loading the required packages & data
+2) Exploratory Data Analysis & Visualization
+3) Modelling
+
+## Important Note
+
+This code was written using R 3.6.0
+
+If you are using a different version of R, please replace 
+set.seed(1, sample.kind = "Rounding") 
+with
+set.seed(1)
+throughout the code, otherwise it may lead to errors.
+
+## Setting Up
+
+Let's load the required packages.
+
+```{r, setup, message=FALSE}
+
+#Install the required packages
+if(!require(tidyverse)) 
+  install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(ggthemes)) 
+  install.packages("ggthemes", repos = "http://cran.us.r-project.org")
+if(!require(caret)) 
+  install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(purrr)) 
+  install.packages("purrr", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) 
+  install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(Rborist)) 
+  install.packages("Rborist", repos = "http://cran.us.r-project.org")
+if(!require(DescTools)) 
+  install.packages("DescTools", repos = "http://cran.us.r-project.org")
+if(!require(GoodmanKruskal)) 
+  install.packages("GoodmanKruskal", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) 
+  install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(ROCR)) 
+  install.packages("ROCR", repos = "http://cran.us.r-project.org")
+
+#Load the required packages
+library(tidyverse)
+library(ggthemes)
+library(caret)
+library(purrr)
+library(randomForest)
+library(Rborist)
+library(DescTools)
+library(GoodmanKruskal)
+library(corrplot)
+library(ROCR)
+```
+
+Let's load the dataset. 
+
+There are 3 options to download the dataset - 
+```{r, download-data}
+#Option 1 - The code below downloads and then loads the data into the current working directory.
+if(!file.exists("./adult.data")){
+  
+  fileUrl <- "http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"  
+  
+  download.file(fileUrl, destfile = "./adult.data")
+  
+}
+
+#Option 2 - You may go to this link and manually download the file
+#and save it in your current working directory
+#"http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data".
+
+#Option 3 - You may download from the github repository for this project
+#and save it in your current working directory
+# "http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data".
+```
+
+Once you have downloaded the file /adult.data in your current working directory, please run the below code to load it into the variable called census.
+
+```{r, load-data}
+census <- read.table("adult.data", sep = ",", header = FALSE)
+colnames(census) <- c("age", "workclass", "fnlwgt", 
+                      "education", "education.num", 
+                      "marital.status", "occupation",
+                      "relationship", "race", "sex", 
+                      "capital.gain", "capital.loss", 
+                      "hours.per.week", "native.country", "income")
+```
+
+
+## Exploratory Data Anlaysis & Visualization
+
+The aims of this major part are - 
+1) Understanding the structure of the dataset
+2) Understanding each of the variables provided
+3) Understanding the relationship of the different variables with income. In common literature, it is often mentioned that education, age, or sex, for example, are associated with income, and it will be worthwhile to examine which of these claims hold true in our data.
+
+### Overall Dataset
+Let's understand the dataset.
+
+```{r, data-understanding}
+#Top-level look at data
+head(census)
+str(census)
+dim(census)
+```
+
+The dataset has 32561 observations, each observation corresponding to data for one individual.
+There are 14 feature variables and a label called 'income' which categorizes each individual into 1 of 2 buckets - income <=50K or income >50K.
+
+### Label variable - Income
+Let's now take a closer look at the 'income' variable.
+
+```{r, income}
+#calculate proportion of observations by income, or distribution of income across observations
+incomec <- census %>% group_by(income) %>% summarize(n = n(), proportion = n/nrow(census))
+
+#the below code gives a visual representation of this
+incomec %>% ggplot(aes(income, proportion)) + 
+  geom_bar(stat = "identity", width = 0.5) + 
+  ylim(c(0,1)) +
+  geom_text(label = round(incomec$proportion, 2), 
+            vjust = -0.5, color = "black", size = 5) + 
+  theme_classic() + 
+  ggtitle("Income")
+```
+
+income is a binary factor variable, and 24% of the individuals have income >50K.
+
+income is converted to - 
+1) a factor variable incomeLevel with values 0 & 1, with 1 representing income >50K.
+2) a numerical variable incomeNumeric with numeric values 0 & 1, with 1 representing income >50K.
+These are useful for later working.
+
+```{r, income-conversion}
+#Convert income to a binary factor variable with classes "0" & "1"
+census <- mutate(census, incomeLevel = ifelse(income == " <=50K", 0, 1))
+
+#Convert income to a binary numeric variable with classes 0 & 1
+census$incomeLevel <- census$incomeLevel %>% factor(levels = c("0", "1"))
+census <- mutate(census, incomeNumeric = as.numeric(incomeLevel)-1)
+```
+
+### Feature Variables
+
+Let's understand each of the variables provided & their relationship with the income variable.
+
+#### Age
+
+```{r, age-1}
+#calculate proportion of observations by age, or distribution of age across observations
+summary(census$age)
+census %>% ggplot() + 
+  geom_bar(aes(x = age)) + 
+  theme_minimal() + 
+  ggtitle("Age")
+```
+
+Age is integer, ranging from 17 to 90, and skewed towards the lower end (median of 37).
+This is confirmed from the plot, which shows most of the population appearing between the age of 17 and 55.
+
+To assess the relationship of age with income, it is useful to bucket age into groups.
+
+```{r, age-2}
+#first we do a preliminary bucketing of age into groups of 5 years
+census <- mutate(census, ageGroup = round(age/5)*5)
+
+#and then observe the average proportion with income >50K for these age groups
+census %>% 
+  group_by(ageGroup) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric)) %>% 
+  ggplot(aes(ageGroup, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  theme_minimal() + 
+  ggtitle("Age Group")
+
+#Based on the plot, we will group age further into 4 groups - <25, 25-35, 40-60, >60
+#which have very distinct proportions of people with income >50K
+census <- mutate(census, ageGroup2 = 
+                   ifelse(ageGroup < 30, "<30", 
+                          ifelse(ageGroup < 40, "30-40", 
+                                 ifelse(ageGroup < 60, "40-60", ">60"))))
+
+#Now we calculate the proportion with income >50K for these age groups
+agec <- census %>% 
+  group_by(ageGroup2) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#We see this visually with the below code
+agec %>% 
+  ggplot(aes(ageGroup2, prop_more_than_50K)) + 
+  ylim(c(0,0.5)) +
+  geom_text(label = round(agec$prop_more_than_50K, 2), 
+            vjust = -0.5, color = "black", size = 4) + 
+  geom_bar(stat = "identity") + 
+  scale_x_discrete(limits = c("<30","30-40","40-60",">60")) +
+  theme_classic() +
+  ggtitle("Relationship of Age with income")
+```
+
+Thus, this chart shows a clear relationship of approximate age group with income level, in line with common knowledge.
+At age <30, it is very unlikely to have income >50K. In the age groups of 30-40 and >60, there is a 20% chance of income >50K. The highest chance of income >50K is in the age group of 40-60 (nearly 40%).
+
+#### Race
+
+```{r, race-1}
+#calculate proportion of observations by race, or distribution of race across observations
+racec <- census %>% group_by(race) %>% summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+racec %>% ggplot(aes(race, proportion)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(racec$proportion, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  theme_classic() + 
+  ggtitle("Race")
+```
+
+Race is factor, with 5 levels. 85% of persons are 'White'.
+
+Let's see the relationship of race with income.
+
+```{r, race-2}
+#calculate proportion with income >50K for each race
+racec2 <- census %>% 
+  group_by(race) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+racec2 %>% 
+  ggplot(aes(race, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.5)) +
+  coord_flip() +
+  geom_text(label = round(racec2$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = racec2$race[order(racec2$prop_more_than_50K)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Race with Income")
+```
+
+This chart shows a difference in income level for different races.
+25-30% of 'White' or 'Asian-Pac-Islander' individuals have income >50K, while only 9-12% of other racial backgrounds do.
+
+Since racial discrimination is a topic of interest, let us examine whether some other factors could be causing this difference.
+```{r, race-3}
+#calculate average educational level for each race
+racec3 <- census %>% 
+  group_by(race) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric), education = mean(education.num))
+racec3
+```
+
+We see that 'White' and 'Asian-Pac-Islander' have higher education levels as well - hence, the difference in proportion with incomes >50K may not be due to racial background alone.
+
+#### Sex
+
+```{r, sex-1}
+#calculate proportion of observations by sex, or distribution of sex across observations
+sexc <- census %>% group_by(sex) %>% summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+sexc %>% ggplot(aes(sex, proportion)) + 
+  geom_bar(stat = "identity", width = 0.5) +
+  ylim(c(0,1)) +
+  geom_text(label = round(sexc$proportion, 2), 
+            vjust = -0.5, color = "black", size = 5) + 
+  theme_classic() + 
+  ggtitle("Sex")
+```
+
+Sex is factor, with 2 levels. 'Male' is 2/3rd of the observations.
+
+We see if there is any income gap based on sex - 
+
+```{r, sex-2}
+#calculate proportion with income >50K for each sex
+sexc2 <- census %>% 
+  group_by(sex) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+sexc2 %>% 
+  ggplot(aes(sex, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.5)) +
+  geom_text(label = round(sexc2$prop_more_than_50K, 2), 
+            vjust = -0.5, color = "black", size = 4) + 
+  theme_classic() + 
+  ggtitle("Relationship of Sex with Income")
+```
+
+This chart shows a considerable gap. While 31% of males have income >50K, only 11% of females have income >50K, which indicates a 'gender wage gap.
+
+#### Native Country
+
+```{r, native-country-1}
+summary(census$native.country)
+mean(census$native.country == " United-States")
+```
+native.country is a factor variable with 42 levels.United-States with 90% observations is the most common.
+native.country is thus very skewed, with many other countries having very few observations. Using this variable may lead to very small sample sizes affecting our analysis.
+
+Let's take a top-level look at whether there is a gap between individuals whose native country is United States, vs others.
+
+```{r, native-country-2}
+#group all observations into 2 buckets of native country - "United-States" & "Other"
+census <- mutate(census, native.country.group = 
+                   ifelse(native.country == " United-States", "United-States", "Other"))
+
+#calculate proportion with income >50K for both these buckets
+nativec <- census %>% 
+  group_by(native.country.group) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+nativec %>% 
+  ggplot(aes(native.country.group, prop_more_than_50K)) + 
+  geom_bar(stat = "identity", width = 0.5) + 
+  ylim(c(0,0.5)) +
+  geom_text(label = round(nativec$prop_more_than_50K, 2), 
+            vjust = -0.5, color = "black", size = 4) + 
+  theme_classic() + 
+  ggtitle("Relationship of Native Country with Income")
+```
+
+There is not a significant gap between proportion of individuals with income >50K depending on whether their native country is United States or Other.
+
+Given the skew of the native.country variable and its apparent lack of significant impact, this variable is excluded from the modelling analysis.
+
+#### Workclass
+
+```{r, workclass-1}
+#calculate proportion of observations by workclass, 
+#or distribution of workclass across observations
+workc <- census %>% group_by(workclass) %>% summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+workc %>% ggplot(aes(workclass, proportion)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(workc$proportion, 2), 
+            hjust = -0.5, color = "black", size = 4) +
+  theme_classic() + 
+  ggtitle("Workclass")
+```
+
+Work class is a factor variable, with 9 classes. The majority - 70% - are in 'private' workclass.
+
+```{r, workclass-2}
+#calculate proportion with income >50K for each workclass
+workc2 <- census %>% 
+  group_by(workclass) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+workc2 %>% 
+  ggplot(aes(workclass, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(workc2$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = workc2$workclass[order(workc2$prop_more_than_50K)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Workclass with Income")
+```
+
+This chart shows that 'self-emp-inc' workclass - which indicates incorporated self-employment - gives the best chance of having income >50K, more than 50%.
+Individuals Working for federal government also have a higher-than-average chance of income >50K (37%).
+Those who have never worked or working without pay, as expected, do not have income >50K.
+There is little variation among the other 4 workclasses. The proportion of individuals with income >50K is between 20-30% for all these workclasses (around the average of 24%).
+
+#### Occupation
+
+```{r, occupation-1}
+#calculate proportion of observations by occupation, 
+#or distribution of occupation across observations
+occupationc <- census %>% group_by(occupation) %>% 
+  summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+occupationc %>% ggplot(aes(occupation, proportion)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(occupationc$proportion, 2), 
+            hjust = -0.5, color = "black", size = 3) +
+  theme_classic() + 
+  ggtitle("Occupation")
+```
+
+Occupation is a factor variables, with 15 classes.
+Persons are distributed across occupations.
+
+```{r, occupation-2}
+#calculate proportion with income >50K for each occupation
+occupationc2 <- census %>% 
+  group_by(occupation) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+occupationc2 %>% 
+  ggplot(aes(occupation, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(occupationc2$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = occupationc2$occupation[order(occupationc2$prop_more_than_50K)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Occupation with Income")
+```
+
+This chart shows the occupations with highest & lowest proportion of people with income >50K.
+
+#### Hours.per.week
+
+```{r, hours-per-week-1}
+summary(census$hours.per.week)
+census %>% ggplot() + 
+  geom_bar(aes(x = hours.per.week)) + 
+  theme_minimal() + 
+  ggtitle("Hours per week")
+mean(census$hours.per.week == 40)
+```
+
+This is integer, ranging from 1 to 99. Median hours are 40 hours per week, with 47% observations having this value.
+
+```{r, hours-per-week-2}
+#Since this is integer, let's first convert it into groups to assess the impact on income.
+#There are 3 clear groups that stand out - 
+#those who work 40 hours, those who work less, and those who work more
+
+#convert all values of hours.per.week to one of 3 categories - <40, 40, >40
+census <- mutate(census, hours.group = 
+                   ifelse(hours.per.week < 40, "<40",
+                          ifelse(hours.per.week == "40", "40", ">40")))
+
+#calculate proportion with income >50K for each of these categories
+hoursc <- census %>% 
+  group_by(hours.group) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+hoursc %>% 
+  ggplot(aes(hours.group, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.5)) +
+  geom_text(label = round(hoursc$prop_more_than_50K, 2), 
+            vjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = c("<40","40",">40")) +
+  theme_classic() + 
+  ggtitle("Relationship of Working Hours with Income")
+```
+
+There is a strong relationship of hours worked per week with income level.
+Those who work 40 hours per week - the median value - also have a proportion with income >50K that is close to the median (21%). 
+However, working <40 hours halves that probability to 10%, while working >40 hours doubles that probability to 40%.
+
+#### Education & education.num
+
+```{r, education-1}
+summary(census$education)
+```
+
+Education is a factor variable with 16 classes.
+There is a similar variable education.num, let's also explore that variable
+
+```{r, education-2}
+summary(census$education.num)
+```
+
+education.num is an integer variable with 16 values from 1 to 16. 
+This indicates that education.num is a variable assigned based on the 'education' variable, in a one-to-one mapping.
+The below code confirms this mapping.
+
+```{r, education-3}
+#compare education with education.num
+table(census$education, census$education.num)
+census %>% group_by(education.num) %>% summarize(education = first(education))
+```
+
+Thus, education.num is a numerical variable wherein a higher number represents a qualitatively higher level of education.
+education.num therefore provides a useful numerical summary of the educational qualifications of the individual.
+education as a variable therefore does not have additional value and is not required for the analysis.
+
+```{r, education-4}
+#calculate proportion of observations by education.num, 
+#or distribution of education.num across observations
+census %>% ggplot() + 
+  geom_bar(aes(x = education.num)) + 
+  theme_minimal() + 
+  ggtitle("Education")
+```
+
+Most common educational values are 9, 10, and 13, though there are people across educational levels in the sample.
+
+Now, let's see the relationship between education & income.
+
+```{r, education-5}
+#calculate proportion with income >50K for each value of education.num
+educationc <- census %>% 
+  group_by(education) %>% 
+  summarize(education.num = first(education.num),prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+educationc %>% 
+  ggplot(aes(education, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() +
+  geom_text(label = round(educationc$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = educationc$education[order(educationc$education.num)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Education with Income")
+```
+
+This chart is ordered by education.num - essentially by one's education level. However, it almost appears ordered by proportion with income >50K. Thus, this chart shows a strong relationship between education & income.
+We can clearly see some groups here - those with some level of schooling have <10% proportion with income <50K, and this does not vary significantly by the grade up to which one has studied.
+Those who are high school graduates and have done some college/vocational education but dont have a college degree, have an average proportion (16-25%) with income <50K.
+Post this, each additional degree obtained - bachelors, masters, and doctorate - appears to increase the probability of having income >50K by approximately 15% each.
+
+
+#### Relationship
+```{r, relationship-1}
+#calculate proportion of observations by relationship, 
+#or distribution of relationship across observations
+relationshipc <- census %>% group_by(relationship) %>% 
+  summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+relationshipc %>% ggplot(aes(relationship, proportion)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() + 
+  geom_text(label = round(relationshipc$proportion, 2), 
+            hjust = -0.5, color = "black", size = 3) + 
+  theme_classic() + 
+  ggtitle("Relationship")
+```
+
+Relationship is a variable with 6 classes, with values distributed across the classes. 
+
+```{r, relationship-2}
+#calculate proportion with income >50K for each value of relationship
+relationshipc2 <- census %>% 
+  group_by(relationship) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+relationshipc2 %>% 
+  ggplot(aes(relationship, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.75)) +
+  coord_flip() +
+  geom_text(label = round(relationshipc2$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = relationshipc2$relationship[order(relationshipc2$prop_more_than_50K)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Relationship with Income")
+```
+
+This chart clearly shows that being in a marital relationship (having a husband/wife) has a strong correlation with higher earning, with 45-50% of these individuals having income >50K.
+In contrast, 10% or lower of others have income > 50K.
+
+
+#### Marital-status
+
+```{r, marital-status-1}
+#calculate proportion of observations by marital status, 
+#or distribution of marital status across observations
+maritalc <- census %>% group_by(marital.status) %>% 
+  summarize(n = n(), proportion = n/nrow(census))
+
+#see this visually
+maritalc %>% ggplot(aes(marital.status, proportion)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,1)) +
+  coord_flip() + 
+  geom_text(label = round(maritalc$proportion, 2), 
+            hjust = -0.5, color = "black", size = 3) + 
+  theme_classic() + 
+  ggtitle("Marital Status")
+```
+
+Marital status is a factor variable with 7 classes, with 2 classes (Married-civ-spouse and Never-Married) having the majority of observations.
+
+```{r, marital-status-2}
+#calculate proportion with income >50K for each value of marital.status
+maritalc2 <- census %>% 
+  group_by(marital.status) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+maritalc2 %>% 
+  ggplot(aes(marital.status, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.75)) +
+  coord_flip() +
+  geom_text(label = round(maritalc2$prop_more_than_50K, 2), 
+            hjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = maritalc2$marital.status[order(maritalc2$prop_more_than_50K)]) +
+  theme_classic() + 
+  ggtitle("Relationship of Marital status with Income")
+```
+
+The conclusions of this chart are similar to those seen earlier - 40-50% of married individuals have income >50K, while <10% of others do.
+
+While these 2 variables are related, they are not related one-to-one as seen in this table.
+
+```{r, relationship-vs-marital-status}
+#compare relationship vs marital.status
+table(census$relationship, census$marital.status)
+```
+
+Hence both these variables are retained for further analysis.
+
+
+#### Capital variables - capital.gain, capital.loss
+
+```{r, capital-gain}
+summary(census$capital.gain)
+
+#see proportion with positive capital gain
+capGain <- census %>% filter(capital.gain > 0) %>% summarize(n = n())
+capGain/nrow(census)
+```
+
+8% of the population has a positive capital.gain.
+
+```{r, capital-loss}
+summary(census$capital.loss)
+
+#see proportion with positive capital loss
+capLoss <- census %>% filter(capital.loss > 0) %>% summarize(n = n())
+capLoss/nrow(census)
+```
+
+4.6% of the population has a positive capital.loss.
+
+```{r, capital2}
+census %>% filter(capital.gain >0) %>% summarize(sum(capital.loss))
+census %>% filter(capital.loss >0) %>% summarize(sum(capital.gain))
+```
+
+It is also confirmed that capital gain & loss are never positive together. Thus, these 2 columns are combined into a net capital movement column.
+
+```{r, capital3}
+#create new capitalMovement variable
+census <- mutate(census, capitalMovement = 
+                   ifelse(capital.gain > 0, capital.gain, 
+                          ifelse(capital.loss > 0, -capital.loss, 0)))
+summary(census$capitalMovement)
+```
+
+Let's now see the relationship of capital movement with income level.
+
+```{r, capital4}
+#Since capitalMovement is integer, let's first convert it into groups 
+#to assess the impact on income. There are 3 clear groups that stand out - 
+#those with positive capital movement, those with negative, and those with none.
+
+census <- mutate(census, capital.group = 
+                   ifelse(capitalMovement < 0, "Negative",
+                          ifelse(capitalMovement == 0, "None", "Positive")))
+
+#now calculate proportion with income >50K for each of these groups
+capitalc <- census %>% 
+  group_by(capital.group) %>% 
+  summarize(prop_more_than_50K = mean(incomeNumeric))
+
+#see this visually
+capitalc %>% 
+  ggplot(aes(capital.group, prop_more_than_50K)) + 
+  geom_bar(stat = "identity") + 
+  ylim(c(0,0.75)) +
+  geom_text(label = round(capitalc$prop_more_than_50K, 2), 
+            vjust = -0.5, color = "black", size = 4) + 
+  scale_x_discrete(limits = c("Negative","None","Positive")) +
+  theme_classic() + 
+  ggtitle("Relationship of Capital Movement with Income")
+```
+
+The results of this chart are somewhat ambiguous. It seems to indicate that a significant percentage (50-60%) of those with positive or negative capital movement have income >50K, while only 20% of those with no capital movement have income >50K.
+The likely interpretation here is that it is income level causing capital movement, rather than the other way round. Those with incomes > 50K are more likely to invest and have capital movement, while those with incomes <50K do not engage in investing.
+
+#### fnlwgt
+
+A description of fnlwgt is provided along with the dataset, which indicates that this variable is a weight of the observation based on demographics.
+It is thus not used in any analysis.
+
+
+## Data Cleaning
+
+3 variables - workclass, occupation, and native.country - have several "?" observations.
+These can be interpreted as missing data.
+It is now attempted to replace this missing data with meaningful data.
+
+### Replacing "?" in workclass & occupation
+
+```{r, workclass-vs-occupation}
+table(census$occupation, census$workclass)
+```
+
+Some workclasses & occupations have a one-to-many or many-to-one relationship.
+Thus, workclass & occupation are related, with some workclasses occuring only with some occupations.
+All possible combinations of workclass & occupation together are identified - combinations which already have some nonzero observations in them.
+Then, the "?" in both these variables together are filled such that these observations are distributed among the other possible combinations in a proportionate manner.
+
+```{r, workclass-vs-occupation1}
+#create data frame of all combinations of non-"?" values
+#of occupation & workclass
+workclass_vs_occupation <- as.data.frame(table(census$workclass, census$occupation)[2:9,2:15])
+colnames(workclass_vs_occupation)<-c("Workclass","Occupation","Count")
+
+#calculate total number of such combinations
+total<-sum(workclass_vs_occupation$Count)
+
+#for each combination, what proportion of observations have that combination
+workclass_vs_occupation$proportion<-workclass_vs_occupation$Count/total
+
+#cumulative proportion till a particular point. This will be used in the next section
+workclass_vs_occupation$cumulate<-cumsum(workclass_vs_occupation$proportion)
+```
+
+There is now a table with all possible combinations and the proportion of observations in each combination.
+
+```{r, workclass-vs-occupation2, warning= FALSE}
+set.seed(1, sample.kind = "Rounding")
+
+#create random numbers between 0 & 1, one for every instance of "?"
+randomNumbers <- runif(sum(census$occupation=="?"))
+
+#calculates the number of entries till that random number crosses the cumulative proportion.
+#essentially, we have to replace the missing "?" values with a combination of 
+#occupation & workclass that is present. So, the missing 1843 values have to be replaced by
+#one of these 112 combinations in a proportionate manner. The below code calculates that
+#proportionate division.
+ind <- rowSums(vapply(workclass_vs_occupation$cumulate,
+                      function(x) x<=randomNumbers, logical(length(randomNumbers))))+1
+a<-as.character(workclass_vs_occupation$Workclass)[ind]
+```
+
+There are 1836 "?" entries in workclass & 1843 "?" entries in occupation, as seen above.
+All 1836 "?" entries in workclass are included in the 1843 "?" entries in occupation.
+
+```{r, workclass-vs-occupation3}
+#get the entries which have missing "?" values
+missing_occupation <-which(census$occupation=="?")
+missing_workclass <- which(census$workclass=="?")
+missing_only_occ <- setdiff(missing_occupation,missing_workclass)
+
+#replace each of the missing "?" values with an existing value
+census$workclass[missing_workclass]= as.character(workclass_vs_occupation$Workclass)[ind][1:1836]
+census$occupation[missing_workclass]= as.character(workclass_vs_occupation$Occupation)[ind][1:1836]
+census$occupation[missing_only_occ] <- as.character(workclass_vs_occupation$Occupation)[ind][1837:1843]
+table(census$occupation, census$workclass)
+```
+
+This code replaces all the "?" entries in workclass & occupation with a value that already exists.
+
+### Replacing "?" in native.country
+
+Not relevant given it is not used in analysis going forward and there is no logical way to deduce the value of the missing native.country.
+
+
+## Modelling
+
+The aim of this major part is to develop models that will allow us to predict income level from the other feature variables.
+
+### Creating training & validation data
+
+First train & test sets are created.
+```{r, data-preparation, warning=FALSE}
+#create train & test sets
+y <- census$incomeLevel
+set.seed(1, sample.kind = "Rounding")
+index <- createDataPartition(y, times = 1, p = 0.2, list = FALSE)
+train_set <- census[-index, ]
+test_set <- census[index, ]
+```
+
+Now that the data is ready, let's start modelling.
+
+First, let's create a table to hold and compare our results from different models.
+The following 4 metrics are calculated and the models evaluated across these metrics to identify the best ones.
+1) Overall accuracy
+2) F1 score
+3) Sensitivity
+4) Specificity
+
+```{r, results-table}
+#create table of results
+results<-data.frame(Model=character(),
+                    Accuracy=numeric(),
+                    F1_score=numeric(),
+                    Sensitivity=numeric(),
+                    Specificity=numeric(),
+                    stringsAsFactors = FALSE)
+```
+
+
+### Logistic Regression
+
+Given that the task is to predict a categorical variable using several other variables, logistic regression is a good model to build.
+
+
+#### Model 1
+
+The first model will try to predict income level using all factor variables, excluding native.country.
+
+```{r, logistic-model-1, warning=FALSE}
+#run glm model on all factor variables
+glm_fit1 <- train_set %>%
+  glm(incomeLevel ~ age + race + sex + capitalMovement + hours.per.week + 
+        education.num + marital.status + relationship + workclass + 
+        occupation, data = ., family = "binomial")
+
+#predict the cutoff probability value
+p_hat_logit1 <- predict(glm_fit1, train_set, type = "response")
+
+summary(p_hat_logit1)
+```
+
+The median 50% range for p_hat_logit1 is from 0.01 to 0.39.
+
+The model is now tuned to obtain the best value of p from the above range to make the prediction y_hat.
+
+```{r, logistic-model-1-tuning}
+cutoffs <- c(0, seq(0.01,0.39,0.01), 1)
+
+#tuning-calculate the FPR & TPR for each value of p
+prob_cutoff1 <- map_df(cutoffs, function(x){
+  y_hat_logit1 <- ifelse(p_hat_logit1 < x, "0", "1") %>% factor(levels = c("0","1"))
+  list(method = "Logistic Regression - all vars", 
+       p = x,
+       FPR = 1 - specificity(y_hat_logit1, train_set$incomeLevel),
+       TPR = sensitivity(y_hat_logit1, train_set$incomeLevel))
+})
+
+# calculate distance of our model at each point from the ideal (0,1) point.
+#the (0,1) point on the ROC curve indicates sensitivity & specificity = 1.
+prob_cutoff1 <- mutate(prob_cutoff1, distance = sqrt((FPR-0)^2 + (TPR-1)^2))
+
+#the best value of p is that for which this distance is the lowest.
+best_prob1 <- prob_cutoff1$p[which.min(prob_cutoff1$distance)]
+best_prob1
+```
+
+p = 0.27 has the best performance of the model.
+Sensitivity & specificity are taken as equally important.
+
+```{r, ROC-1}
+#generate ROC curve
+prob_cutoff1 %>% ggplot(aes(FPR, TPR)) + geom_line(aes(col = method)) + theme_minimal()
+```
+
+Here is the ROC curve, which shows a reasonable fit.
+
+```{r, prediction-1}
+#get prediction y_hat for y
+y_hat_logit1 <- ifelse(p_hat_logit1 < best_prob1, "0", "1") %>% factor
+```
+
+This is the model prediction, let's now note the results.
+
+```{r, results-1}
+#calculate various result metrics for this model based on the predicted value of y_hat
+results[1, "Model"] <- "Logistic - All Vars"
+results[1,"Accuracy"] <- confusionMatrix(y_hat_logit1, train_set$incomeLevel)$overall["Accuracy"]
+results[1,"F1_score"] <- F_meas(y_hat_logit1, train_set$incomeLevel)
+results[1, "Sensitivity"] <- sensitivity(y_hat_logit1, train_set$incomeLevel)
+results[1, "Specificity"] <- specificity(y_hat_logit1, train_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+The model gives overall accuracy of 0.81 with sensitivity 0.81 and specificity 0.82.
+The model seems balanced overall, as reflected in the F1 score of 0.86.
+
+#### Model 2
+```{r, model-1-summary}
+summary(glm_fit1)
+```
+
+race, education.nam are not significant variables since p-value for all the levels is >0.05. The next model can attempt to exclude these variables. 
+
+```{r, logistic-model-2, warning=FALSE}
+#run glm on selected factor variables excluding those with high p-values
+glm_fit2 <- train_set %>%
+  glm(incomeLevel ~ age + sex + capitalMovement + hours.per.week + 
+        marital.status + relationship + workclass + occupation, 
+      data = ., family = "binomial")
+p_hat_logit2 <- predict(glm_fit2, train_set, type = "response")
+summary(p_hat_logit2) 
+```
+
+The median 50% range is from 0.02 to 0.39.
+The model is now tuned to obtain the best value of p from the above range to make the prediction y_hat.
+
+```{r, logistic-model-2-tuning}
+
+#tuning-calculate the FPR & TPR for each value of p
+cutoffs <- c(0, seq(0.02,0.39,0.01), 1)
+prob_cutoff2 <- map_df(cutoffs, function(x){
+  y_hat_logit2 <- ifelse(p_hat_logit2 < x, "0", "1") %>% factor
+  list(method = "Logistic Regression - excl insignificant", 
+       p = x,
+       FPR = 1 - specificity(y_hat_logit2, train_set$incomeLevel),
+       TPR = sensitivity(y_hat_logit2, train_set$incomeLevel))
+})
+
+#calculate distance from (0,1) and value of p which minimizes this
+prob_cutoff2 <- mutate(prob_cutoff2, distance = sqrt((FPR-0)^2 + (TPR-1)^2))
+best_prob2 <- prob_cutoff2$p[which.min(prob_cutoff2$distance)]
+best_prob2
+```
+
+p = 0.27 has the best performance of the model.
+Sensitivity & specificity are taken as equally important.
+
+```{r, ROC-2}
+#generate ROC curve
+prob_cutoff2 %>% ggplot(aes(FPR, TPR)) + geom_line(aes(col = method)) + theme_minimal()
+```
+
+Here is the ROC curve, which shows a reasonable fit.
+
+```{r, prediction-2}
+#get prediction
+y_hat_logit2 <- ifelse(p_hat_logit2 < best_prob2, "0", "1") %>% factor
+```
+
+This is the prediction, let's now note the results.
+
+```{r, results-2}
+#Note results
+results[2, "Model"] <- "Logistic - excl insignificant"
+results[2,"Accuracy"] <- confusionMatrix(y_hat_logit2, train_set$incomeLevel)$overall["Accuracy"]
+results[2,"F1_score"] <- F_meas(y_hat_logit2, train_set$incomeLevel)
+results[2, "Sensitivity"] <- sensitivity(y_hat_logit2, train_set$incomeLevel)
+results[2, "Specificity"] <- specificity(y_hat_logit2, train_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+The results show that model 1 performs better across all 4 metrics. 
+Thus, model 1 is taken as the base model for further analysis.
+
+#### Model 3
+
+Now, another attempt is made to improve the model by excluding highly correlated variables.
+There are both categorical & numerical variables, and hence different techniques will have to be employed.
+
+First, let's find correlation between categorical variables using Goodman-Kruskal tau, which is a metric of the degree to which one variable can predict another variable.
+
+```{r, categorical-correlation}
+#select categorical variables
+train_set_categorical <- subset(train_set,select = 
+                                  c(workclass, marital.status, occupation, 
+                                    relationship, race, sex))
+
+#calculate Goodman-Kruskal tau for correlation
+plot(GKtauDataframe(train_set_categorical))
+```
+
+The chart shows that relationship can predict marital status (high value of 0.58), hence marital status may be excluded. No other correlation is significant.
+
+Next let's find correlation between numerical variables.
+
+```{r, numerical-correlation}
+#select numerical variables
+train_set_numerical <- subset(train_set, 
+                              select = c(age, hours.per.week, education.num, capitalMovement))
+#calculate correlation
+cor(train_set_numerical)
+```
+
+No 2 numeric variables are significantly correlated.
+
+Next, let's find correlation between categorical & numerical variables using the Kruskal test.
+
+```{r, categorical-numerical-correlation}
+#create a data frame for all combinations of categorical vs numerical variables
+cat_vs_num <- as.data.frame(matrix(NA,nrow = 6, ncol = 4))
+rownames(cat_vs_num) <- 
+  c("workclass", "marital.status", "occupation", "relationship", 
+    "race", "sex")
+colnames(cat_vs_num) <- c("age", "hours.per.week", "education.num", "capitalMovement")
+
+#perform Kruskal test on each combination.
+for(i in 1:6){
+  for(j in 1:4){
+    x_var<-train_set[colnames(cat_vs_num)[j]][[1]]
+    y_var<-train_set[rownames(cat_vs_num)[i]][[1]]
+    cat_vs_num[i,j] <- kruskal.test(x=x_var,g=y_var)$p.value
+  }
+}
+cat_vs_num
+#gives that sex & education.num are correlated
+```
+
+sex & education.num are correlated.
+
+```{r, correlated-variables}
+#see variation of income with sex
+sex_table<-table(train_set$sex, train_set$incomeLevel)
+sex_table
+
+#see variation of income with each value of education.num
+educationnum_table<-table(train_set$education.num, train_set$incomeLevel)
+educationnum_total<-rowSums(educationnum_table)
+educationnum_proportion<-educationnum_table/educationnum_total
+educationnum_proportion
+#there is a clear increase in 1's with increase in education.num
+```
+
+However, this data shows that sex, education.num are both significant and hence retained.
+
+Thus, only marital.status is to be excluded from the third model.
+Now let's build this model.
+
+```{r, logistic-model-3, warning=FALSE}
+#build 3rd glm model, excluding only marital.status
+glm_fit3 <- train_set %>%
+  glm(incomeLevel ~ age + race + sex + capitalMovement + 
+        hours.per.week + education.num + relationship + 
+        workclass + occupation, data = ., family = "binomial")
+p_hat_logit3 <- predict(glm_fit3, train_set, type = "response")
+summary(p_hat_logit3)
+```
+
+The median 50% range for p_hat_logit1 is from 0.01 to 0.39.
+
+The model is now tuned to obtain the best value of p from the above range to make the prediction y_hat.
+
+```{r, logistic-model-3-tuning}
+#tuning-calculate FPR & TPR, & p which gives lowest value of distance from (0,1)
+cutoffs <- c(0, seq(0.01,0.39,0.01), 1)
+prob_cutoff3 <- map_df(cutoffs, function(x){
+  y_hat_logit3 <- ifelse(p_hat_logit3 < x, "0", "1") %>% factor
+  list(method = "Logistic Regression - excl correlated", 
+       p = x,
+       FPR = 1 - specificity(y_hat_logit3, train_set$incomeLevel),
+       TPR = sensitivity(y_hat_logit3, train_set$incomeLevel))
+})
+prob_cutoff3 <- mutate(prob_cutoff3, distance = sqrt((FPR-0)^2 + (TPR-1)^2))
+best_prob3 <- prob_cutoff3$p[which.min(prob_cutoff3$distance)]
+best_prob3
+```
+
+p = 0.27 has the best performance of the model.
+Sensitivity & specificity are taken as equally important.
+
+```{r, ROC-3}
+#generate ROC curve
+prob_cutoff3 %>% ggplot(aes(FPR, TPR)) + geom_line(aes(col = method)) + theme_minimal()
+```
+
+Here is the ROC curve, which shows a reasonable fit.
+
+```{r, prediction-3}
+#get prediction
+y_hat_logit3 <- ifelse(p_hat_logit3 < best_prob3, "0", "1") %>% factor
+```
+
+This is the prediction, let's now note the results.
+
+```{r, results-3}
+#note results
+results[3, "Model"] <- "Logistic - excl correlated"
+results[3,"Accuracy"] <- confusionMatrix(y_hat_logit3, train_set$incomeLevel)$overall["Accuracy"]
+results[3,"F1_score"] <- F_meas(y_hat_logit3, train_set$incomeLevel)
+results[3, "Sensitivity"] <- sensitivity(y_hat_logit3, train_set$incomeLevel)
+results[3, "Specificity"] <- specificity(y_hat_logit3, train_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+Thus, accuracy & F1 score is improved, while the model is more balanced between sensitivity & specificity. 
+Hence, we will go ahead with model 3.
+
+#### Final Logistic Regression Model
+
+The final model is as below - 
+
+```{r, logistic-model-final, warning=FALSE}
+#run the final glm model on the train set. This includes all factor variables except
+#native.country & marital.status
+glm_fit <- train_set %>%  glm(incomeLevel ~ age + race + sex + capitalMovement + 
+        hours.per.week + education.num + relationship + 
+        workclass + occupation, data = ., family = "binomial")
+
+#Model applied on train set, and results noted.
+p_hat_logit_train <- predict(glm_fit, train_set, type = "response")
+y_hat_logit_train <- ifelse(p_hat_logit_train < 0.27, "0", "1") %>% factor
+results[4, "Model"] <- "Logistic final - train set"
+results[4,"Accuracy"] <- confusionMatrix(y_hat_logit_train, train_set$incomeLevel)$overall["Accuracy"]
+results[4,"F1_score"] <- F_meas(y_hat_logit_train, train_set$incomeLevel)
+results[4, "Sensitivity"] <- sensitivity(y_hat_logit_train, train_set$incomeLevel)
+results[4, "Specificity"] <- specificity(y_hat_logit_train, train_set$incomeLevel)
+
+#Model applied on test set, and results noted.
+p_hat_logit_test <- predict(glm_fit, test_set, type = "response")
+y_hat_logit_test <- ifelse(p_hat_logit_test < 0.27, "0", "1") %>% factor
+results[5, "Model"] <- "Logistic final - test set"
+results[5,"Accuracy"] <- confusionMatrix(y_hat_logit_test, test_set$incomeLevel)$overall["Accuracy"]
+results[5,"F1_score"] <- F_meas(y_hat_logit_test, test_set$incomeLevel)
+results[5, "Sensitivity"] <- sensitivity(y_hat_logit_test, test_set$incomeLevel)
+results[5, "Specificity"] <- specificity(y_hat_logit_test, test_set$incomeLevel)
+
+results %>% knitr::kable()
+```
+
+We thus see that this model performs well, with sensitivity of 0.80, specificity of 0.81, overall accuracy of 0.80, and F1 score of 0.86.
+Also, the performance of the model is similar on train & test sets which indicates no overfitting.
+
+### KNN
+
+Next, let's fit k-nearest neighbours to our data.
+
+```{r, knn-default, warning=FALSE}
+set.seed(1, sample.kind = "Rounding")
+
+#this fits knn to our data with all factor variables taken in the model
+knn_fit <- knn3(incomeLevel ~ age + race + sex + occupation + workclass + 
+                  capitalMovement + hours.per.week + education.num + 
+                  marital.status + relationship, train_set, k = 5)
+
+#calculate the prediction y_hat from this model
+y_hat_knn <- predict(knn_fit, test_set, type = "class") %>% factor(levels = c("0", "1"))
+
+#note the results from KNN
+results[6, "Model"] <- "KNN"
+results[6,"Accuracy"] <- confusionMatrix(y_hat_knn, test_set$incomeLevel)$overall["Accuracy"]
+results[6,"F1_score"] <- F_meas(y_hat_knn, test_set$incomeLevel)
+results[6, "Sensitivity"] <- sensitivity(y_hat_knn, test_set$incomeLevel)
+results[6, "Specificity"] <- specificity(y_hat_knn, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+Thus, the KNN model which is forecasting income level on all other factors gives 
+0.91 sensitivity & 0.64 specificity, with 0.85 overall accuracy and 0.90 F1 score.
+
+Now, let's tune for k.
+However, we will require numeric variables to calculate distance.
+age, capitalMovement, hours.per.week are already numeric
+race, sex, relationship can be converted to numeric as below.
+occupation, workclass, marital.status have no logical way to convert to numeric & hence are dropped for tuning.
+
+```{r, knn-numeric}
+#convert to numeric variables
+train_set <- mutate(train_set, 
+                    raceNum = ifelse(race == "White", 0, 1), 
+                    sexNum = ifelse(sex == "Female", 0, 1), 
+                    relationshipNum = ifelse(relationship %in% c("Husband", "Wife"), 1, 0))
+col_index_knn <- which(colnames(train_set) %in% 
+                         c("age","capitalMovement","hours.per.week","education.num", 
+                           "raceNum", "sexNum", "relationshipNum"))
+```
+
+Now, let's tune on this data.
+
+```{r, knn-tune, warning=FALSE}
+#create control for 10-fold cross-validation
+control_knn <- trainControl(method = "cv",number = 10, p= 0.9)
+
+#create index to sample 5000 observations with each run to make it faster
+n <- 5000
+index <- sample(nrow(train_set), n)
+set.seed(1, sample.kind = "Rounding")
+
+#default value of k is 5. Try values 3, 5, 7, 9 to see which works best.
+knn_train <- train(train_set[index,col_index_knn],train_set$incomeLevel[index], 
+                   method = "knn", tuneGrid = data.frame(k = c(3,5,7,9)), trControl = control_knn)
+knn_train$bestTune
+```
+
+Thus, k=9 gives the best fit.
+Let's now optimize the final model.
+
+```{r, knn-fit, warning = FALSE}
+#build second knn model with k=9
+knn_fit2 <- knn3(incomeLevel ~ age + race + sex + occupation + workclass + 
+                  capitalMovement + hours.per.week + education.num + 
+                  marital.status + relationship, train_set, k = 9)
+
+#generate prediction for y_hat with this model
+y_hat_knn2 <- predict(knn_fit2, test_set, type = "class") %>% factor(levels = c("0", "1"))
+
+#note results from this model
+results[7, "Model"] <- "KNN - tuned"
+results[7,"Accuracy"] <- confusionMatrix(y_hat_knn2, test_set$incomeLevel)$overall["Accuracy"]
+results[7,"F1_score"] <- F_meas(y_hat_knn2, test_set$incomeLevel)
+results[7, "Sensitivity"] <- sensitivity(y_hat_knn2, test_set$incomeLevel)
+results[7, "Specificity"] <- specificity(y_hat_knn2, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+This KNN model gives 0.92 sensitivity and 0.64 specificity, with overall accuracy of 0.855 and F1 score of 0.906.
+The performance of KNN is thus marginally improved with tuning.
+
+### Random Forest
+
+Now, let's fit random forest to our data.
+
+```{r, rf, warning=FALSE}
+set.seed(1, sample.kind = "Rounding")
+
+#fit random forest to all variables
+rf_fit <- randomForest(incomeLevel~age + race + sex + occupation + 
+                         workclass + capitalMovement + hours.per.week+education.num +
+                         marital.status + relationship, data = train_set)
+
+#calculate prediction y_hat from this model
+y_hat_rf <- predict(rf_fit, test_set)
+
+#note results from this model
+results[8, "Model"] <- "Random Forest"
+results[8,"Accuracy"] <- confusionMatrix(y_hat_rf, test_set$incomeLevel)$overall["Accuracy"]
+results[8,"F1_score"] <- F_meas(y_hat_rf, test_set$incomeLevel)
+results[8, "Sensitivity"] <- sensitivity(y_hat_rf, test_set$incomeLevel)
+results[8, "Specificity"] <- specificity(y_hat_rf, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+This random forest model gives a sensitivity of 0.936, specificity of 0.654, accuracy of 0.868, and F1 score of 0.915.
+
+Let's also try Rborist which runs faster.
+
+```{r, rborist, warning=FALSE}
+#run Rborist on the data
+col_index <- which(colnames(train_set) %in% 
+                     c("age","race","sex","occupation","workclass","capitalMovement",
+                       "hours.per.week","education.num", "relationship", "marital.status"))
+set.seed(1, sample.kind = "Rounding")
+rb_fit <- Rborist(train_set[, col_index], train_set$incomeLevel)
+
+#note predictions from Rborist
+y_hat_rb <- predict(rb_fit, test_set[, col_index])$yPred %>% factor(levels = c("0","1"))
+
+#note results from this model
+results[9, "Model"] <- "Rborist"
+results[9,"Accuracy"] <- confusionMatrix(y_hat_rb, test_set$incomeLevel)$overall["Accuracy"]
+results[9,"F1_score"] <- F_meas(y_hat_rb, test_set$incomeLevel)
+results[9, "Sensitivity"] <- sensitivity(y_hat_rb, test_set$incomeLevel)
+results[9, "Specificity"] <- specificity(y_hat_rb, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+However, this gives sensitivity of 0.934, specificity of 0.496, accuracy of 0.828, F1 score of 0.892.
+randomForest thus performs much better and we tune that model.
+
+Let's setup the tuning parameters.
+
+```{r, cross-validation}
+control_rf <- trainControl(method = "cv",number = 5, p= 0.8)
+#we use 5-fold cross validation to reduce time taken
+```
+
+```{r, setup tunegrid}
+grid <- expand.grid(mtry = c(2, 3, 4, 5))
+#mtry default is sqrt(variables) = ~3.2, hence testing 2, 3, 4, 5
+```
+
+Now let's tune the model.
+
+```{r, rf-tune, warning=FALSE}
+#tune for different values of mtry, with 5000 random observations sampled, and 50 trees
+set.seed(1, sample.kind = "Rounding")
+rf_train <- train(train_set[, col_index], train_set$incomeLevel,
+                  method = "rf", 
+                  nTree = 50,
+                  trControl = control_rf, tuneGrid = grid, nSamp = 5000)
+ggplot(rf_train) + theme_minimal()
+rf_train$bestTune
+```
+
+Thus, the best value of mtry is 2.
+Let's now optimize the final model.
+
+```{r, rf-final, warning = FALSE}
+set.seed(1, sample.kind = "Rounding")
+#build final model with mtry =2
+rf_fit2 <- randomForest(incomeLevel~age + race + sex + occupation + 
+                         workclass + capitalMovement + hours.per.week+education.num +
+                         marital.status + relationship, mtry = 2, data = train_set)
+
+#note predictions from this model
+y_hat_rf2 <- predict(rf_fit2, test_set) %>% factor(levels = c("0", "1"))
+
+#note results
+results[10, "Model"] <- "Random Forest - tuned"
+results[10,"Accuracy"] <- confusionMatrix(y_hat_rf2, test_set$incomeLevel)$overall["Accuracy"]
+results[10,"F1_score"] <- F_meas(y_hat_rf2, test_set$incomeLevel)
+results[10, "Sensitivity"] <- sensitivity(y_hat_rf2, test_set$incomeLevel)
+results[10, "Specificity"] <- specificity(y_hat_rf2, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+We try increasing nTree to further improve the performance of the model, but on manually trying a few values we see that the performance doesn't improve.
+This value is what we get with 100 trees.
+
+```{r, rf-more-tree, warning=FALSE}
+#the same exercise as above, with 100 trees specified
+set.seed(1, sample.kind = "Rounding")
+rf_fit3 <- randomForest(incomeLevel~age + race + sex + occupation + 
+                         workclass + capitalMovement + hours.per.week+education.num +
+                         marital.status + relationship, mtry = 2, nTree = 100, data = train_set)
+y_hat_rf3 <- predict(rf_fit3, test_set) %>% factor(levels = c("0", "1"))
+results[11, "Model"] <- "Random Forest - final"
+results[11,"Accuracy"] <- confusionMatrix(y_hat_rf3, test_set$incomeLevel)$overall["Accuracy"]
+results[11,"F1_score"] <- F_meas(y_hat_rf3, test_set$incomeLevel)
+results[11, "Sensitivity"] <- sensitivity(y_hat_rf3, test_set$incomeLevel)
+results[11, "Specificity"] <- specificity(y_hat_rf3, test_set$incomeLevel)
+results %>% knitr::kable()
+```
+
+The original model is thus taken as the final one.
+
+# Results
+
+Let's now look at the final results produced by the 3 models to judge which is the best.
+These are
+1) Logistic final - test set
+2) KNN - tuned
+3) Random Forest - final
+in rows 5, 7, 11 of the results data table.
+
+```{r, results-comparison}
+results[c(5,7,11), ] %>% knitr::kable()
+```
+
+On comparing KNN & Random Forest, it becomes clear that Random Forest is performing better.
+Random forest gives better sensitivity (0.943 vs 0.923) but worse specificity (0.624 vs 0.643).
+Overall accuracy is much improved (0.866 vs 0.855) and F1 score is better (0.914 vs 0.906).
+
+The comparison between logistic regression & random forest is not as straightforward.
+Random forest has significantly better accuracy (0.866 vs 0.807) and F1 score (0.914 vs 0.864).
+However, this is coming at the cost of a gap between sensitivity & specificity. Logistic regression is balanced with sensitivity 0.805 and specificity 0.814. However, while Random forest's sensitivity is 0.943, it's specificity is poor at 0.624.
+
+Let's examine the confusion matrix to see this better.
+
+```{r, results-comparison2}
+confusionMatrix(y_hat_logit_test, test_set$incomeLevel)
+confusionMatrix(y_hat_rf2, test_set$incomeLevel)
+```
+
+Prevalence is skewed in the data, with "1" having a prevalence of 24%.
+Sensitivity & specificity are taken as equally important, since the task is overall prediction.
+
+Given that the task is to correctly predict whether an individual makes >50K, random forest with its higher overall accuracy is the best performing model. 
+However, KNN performs reasonably well also, and logistic regression while having lower accuracy is more balanced between true positives and false negatives.
+
+There were also several interesting results obtained from the exploratory data analysis, which are detailed there and hence not repeated in this section.
+
+# Conclusions
+
+The adult income dataset offers an opportunity to understand the relationship of several factors specific to an individual to his/her income, as well as an opportunity to build a model using these factors that allows one to predict the income using these factors.
+The binary nature of the prediction variable income is a limiting factor, since we don't have information on the actual income level beyond it being lesser or more than $50K. At the same time, it simplifies the exercise and allows us to gain key observations.
+
+
+The conclusions from the analysis are presented below.
+
+1) The dataset contains census data for a set of 32000 individuals in the United States. Assuming that this sample set is random, 24% of individuals in the United States have income greater than $50,000. $50,000 may thus be interpreted as an income level demarcating the population into 2 parts, 'high income' and 'low income', in a 1:3 ratio - with high income being characterized as those with income >$50,000. The entire exercise may thus be interpreted as identifying factors that lead to individuals having high incomes and developing a model to predict whether an individual has a high or low income.
+
+2) There are 11 relevant pieces of information provided about each individual, relating to his/her demographic background, education, employment, relationships, and investments.
+Each of them may have some bearing on his/her income.
+
+i) Age
+ii) Race
+iii) Sex
+iv) Native Country
+v) Working class
+vi) Occupation
+vii) Education level
+viii) Hours worked per week
+ix) Relationship status
+x) Marital status
+xi) Capital gain/loss information
+
+3) Age has a clear association with income level, with ages 40-60 having 40% 'high income' people. This is supported by conventional wisdom that the peak earning potential of an individual is when he/she is towards the later stages of his/her career, while retirement at some point post the age of 60 leads to depressed income.
+
+4) Race has some association with income level, with Whites and Asians having a higher proportion of 'high income' people (26-27%) vs others (9-12%). This may or may not suggest racial discrimination; we saw, for example, that Whites & Asians are also the most educated.
+
+5) Sex has a strong association with income level, with 30% of men but only 10% of women having incomes > $50,000. In general, it is assumed that men & women have similar capabilities. It is also assumed that the men & women in the data will have similar backgrounds. With these assumptions, the data appears to point to a clear 'gender wage gap' as often reported in public media.
+
+6) Being in incorporated self-employment - i.e. having an established own business - significantly increases one's chances of having a high income to over 50%. This is supported by popular wisdom as well. Interestingly, working for federal government offers the next-best chances of having high income (37%). Working for the private sector - as done by 70% of the population - offers a slightly lower-than-average chance of having high income (21%).
+
+7) Management executives and professors (interpreting prof-specialty as professors) have the highest income levels (40-50% are high income), while those engaged in agricultural, cleaning, housework, or armed forces have very few 'high income' individuals (<15%).
+
+8) Education is strongly associated with income level, with the logical interpretation being that higher education is leading to higher income levels. There are several interesting conclusions here - 
+- individuals who are not high school graduates tend to have a very low chance of high income (<10%). The level of schooling completed does not appear to affect this.
+- individuals who have completed high school but not a college degree have a 15-25% chance of high income
+- post high-school, each additional degree - bachelors, masters, and doctorate - adds 15-20% to the chances that an individual is high income. This is very strong evidence for additional degrees leading to higher earning potential.
+
+9) Hours worked per week is also strongly associated with, and likely causing, higher income levels. Working 40 hours a week gives one a median chance - 21% - of being high income. Working more doubles that probability to 40%, while working less halves the probability to 10%.
+
+10) Being in a marital relationship is also strongly associated with, and likely causing, higher income levels. Individuals who are married have a 40-50% chance of high income while those who are not have a <10% chance.
+
+11) Capital gains and losses are both associated with higher income. However, it is quite likely that higher incomes are causing capital gains & losses instead. It is likely that those with incomes >$50,000 engage more in investing and thus have capital gains or losses, while those with low incomes do not.
+
+12) Logistic regression, k-nearest neighbours, and random forest all allow us to predict an individual's income level with >80% accuracy, with random forest giving the highest accuracy of over 86%.The random forest model described here is therefore the best model to predict an individual's income level.
+
+13) This modelling exercise indicates that the collection of an individual's basic information can be used to identify an individual's income level with a great degree of accuracy. This implies that - 
+- an individual's income level is influenced significantly by these ~10 factors
+- an individual's income level may not be influenced to a significant extent by factors taken as conventionally important (e.g. each individual's relationship with his/her manager).
+
+14) While some of the factors used are demographic and cannot be changed - e.g. race, sex, native country, age - several of these can be taken as within individual control - e.g. education, employment, hours worked, and relationship. The relationships with these factors imply that an individual can increase his chances of having a high income by seeking higher education, employment of a certain type, working more hours, and being in a stable relationship personally.
+
+15) However, it is also important to note that several of these factors are decided at an early age - education, employment - and are difficult to change later. This indicates that an individual's earning potential may be decided to a significant extent by his/her decisions/actions till age 30.
